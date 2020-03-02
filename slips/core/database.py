@@ -5,6 +5,7 @@ import sys
 from typing import Tuple, Dict, Set, Callable
 import configparser
 import traceback
+import getpass
 
 
 def timing(f):
@@ -41,15 +42,59 @@ class Database(object):
         # Create the connection to redis
         if not hasattr(self, 'r'):
             try:
-                self.r = redis.StrictRedis(host='localhost', port=6379, db=0, charset="utf-8", decode_responses=True) #password='password')
+                # find free database to store information
+                db_number, username = self.define_db()
+                self.r = redis.StrictRedis(host='localhost', port=6379, db = db_number, charset="utf-8", decode_responses=True) #password='password')
                 if self.deletePrevdb:
                     print('Deleting the previous stored DB in Redis.')
                     self.r.flushdb()
+                self.add_username_db(username)
             except redis.exceptions.ConnectionError:
                 print('[DB] Error in database.py: Is redis database running? You can run it as: "redis-server --daemonize yes"')
         # Even if the DB is not deleted. We need to delete some temp data
         # Zeek_files
         self.r.delete('zeekfiles')
+
+
+    def define_db(self):
+        '''
+        Define a free database to store information
+        Solution:
+            Iterate through the databases (16 in one redis-server), check the value of 'username' key.
+            If the key value same as our OS username or the kye does not exist, we use this database
+        Return the database number and username of OS
+        '''
+        username = self.get_username_os()
+        for db_number in range(0, 15):
+            connection_to_db = redis.StrictRedis(host='localhost', port=6379, db = db_number, charset = 'utf-8', decode_responses=True)
+            db_username = self.get_username_db(connection_to_db)
+            if db_username == username:
+                return db_number, username
+            elif db_username is None:
+                return db_number,username
+
+
+    def add_username_db(self, username):
+        '''
+        Store in the DB the username
+        '''
+        self.r.set('username', username)
+
+    def get_username_os(self):
+        '''
+        Function to retrieve username from operating system
+        Return username
+        '''
+        username = getpass.getuser()
+        return username
+
+    def get_username_db(self, db):
+        '''
+        Get from DB the username
+        '''
+        username = db.get('username')
+        return username
+
 
     def print(self, text, verbose=1, debug=0):
         """ 
