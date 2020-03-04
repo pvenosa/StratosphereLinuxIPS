@@ -43,12 +43,12 @@ class Database(object):
         if not hasattr(self, 'r'):
             try:
                 # find free database to store information
-                db_number, username = self.define_db()
+                db_number, self.username = self.define_db()
                 self.r = redis.StrictRedis(host='localhost', port=6379, db = db_number, charset="utf-8", decode_responses=True) #password='password')
                 if self.deletePrevdb:
                     print('Deleting the previous stored DB in Redis.')
                     self.r.flushdb()
-                self.add_username_db(username)
+                self.add_username_db(self.username)
             except redis.exceptions.ConnectionError:
                 print('[DB] Error in database.py: Is redis database running? You can run it as: "redis-server --daemonize yes"')
         # Even if the DB is not deleted. We need to delete some temp data
@@ -73,6 +73,12 @@ class Database(object):
             elif db_username is None:
                 return db_number,username
 
+    def return_username(self):
+        '''
+        Return the username name
+        No need to ask OS again
+        '''
+        return self.username
 
     def add_username_db(self, username):
         '''
