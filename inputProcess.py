@@ -22,7 +22,8 @@ class InputProcess(multiprocessing.Process):
         __database__.start(self.config)
         self.input_type = input_type
         self.input_information = input_information
-        self.zeek_folder = './zeek_files'
+        # generate folder for zeek logs per each user
+        self.zeek_folder = './zeek_files_' + __database__.return_username()
         self.nfdump_output_file = 'nfdump_output.txt'
         self.nfdump_timeout = None
         self.name = 'input'
