@@ -16,15 +16,16 @@ from slips.common.abstracts import Module
 import multiprocessing
 from slips.core.database import __database__
 import platform
+import json
 
 # Your imports
 
 
-class Module(Module, multiprocessing.Process):
+class EnsembleModule(Module, multiprocessing.Process):
     # Name: short name of the module. Do not use spaces
-    name = 'TemplateModule'
-    description = 'Template module'
-    authors = ['Template Author']
+    name = 'ensemble'
+    description = 'Module to detect infected hosts detection applying ensembling'
+    authors = ['Paula Venosa']
 
     def __init__(self, outputqueue, config):
         multiprocessing.Process.__init__(self)
@@ -36,14 +37,16 @@ class Module(Module, multiprocessing.Process):
         self.config = config
         # Start the DB
         __database__.start(self.config)
-        # To which channels do you wnat to subscribe? When a message
+        # To which channels do you want to subscribe? When a message
         # arrives on the channel the module will wakeup
         # The options change, so the last list is on the
         # slips/core/database.py file. However common options are:
         # - new_ip
         # - tw_modified
         # - evidence_added
-        self.c1 = __database__.subscribe('new_ip')
+        
+        #  This module will be activate when a timewindows finish
+        self.c1 = __database__.subscribe('tw_closed')
         # Set the timeout based on the platform. This is because the
         # pyredis lib does not have officially recognized the
         # timeout=None as it works in only macos and timeout=-1 as it only works in linux
@@ -85,12 +88,33 @@ class Module(Module, multiprocessing.Process):
                 # Check that the message is for you. Probably unnecessary...
                 if message['data'] == 'stop_process':
                     return True
-                if message['channel'] == 'new_ip':
-                    # Example of printing the number of profiles in the
-                    # Database every second
-                    data = len(__database__.getProfiles())
-                    self.print('Amount of profiles: {}'.format(data))
-
+                if message['channel'] == 'tw_closed':
+                    # Ensemble process 
+                    # 
+                    #
+                    #
+                    print('Ensemble module running')
+                    profiles = __database__.getProfiles()
+                    print('profiles obtained')
+                    flows=[]
+                    for profileid in profiles:
+                        (lasttwid, lastid_time) = __database__.getLastTWforProfile(profileid)[0]
+                        flowsprofile = __database__.get_all_flows_in_profileid_twid(profileid,lasttwid)
+                        flows.append(flowsprofile)
+                        print('last tw id obtained and flows for the tw and profileid obtained')
+                        print (lasttwid)
+                        print(lastid_time)
+                        #proceso ese conjunto de flujos? aplico fase 1, 2 y 3 a ese conjunto que está vinclulado 
+                        # a una IP origen?
+                        # o o guardo todos los flujos en una estructura y los proceso a todos como 
+                        # se hizo en los experimentos
+                        #obtener IP del profile
+                    print (len(flows))
+                    for flow in flows:
+                        print(flow)
+                        #for k in flow:
+                        #    d = flow[k]
+                        #    print(d)                         
         except KeyboardInterrupt:
             return True
         except Exception as inst:
