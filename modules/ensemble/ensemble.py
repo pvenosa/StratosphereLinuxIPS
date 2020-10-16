@@ -90,31 +90,27 @@ class EnsembleModule(Module, multiprocessing.Process):
                     return True
                 if message['channel'] == 'tw_closed':
                     # Ensemble process 
+                    data = str(message['data'])
+                    print(data)
+                    twidposition=data.find("t")
+                    profileid = data[0:twidposition-1]
+                    twid = data[twidposition:len(data)]
                     # 
-                    #
-                    #
                     print('Ensemble module running')
-                    profiles = __database__.getProfiles()
-                    print('profiles obtained')
-                    flows=[]
-                    for profileid in profiles:
-                        (lasttwid, lastid_time) = __database__.getLastTWforProfile(profileid)[0]
-                        flowsprofile = __database__.get_all_flows_in_profileid_twid(profileid,lasttwid)
-                        flows.append(flowsprofile)
-                        print('last tw id obtained and flows for the tw and profileid obtained')
-                        print (lasttwid)
-                        print(lastid_time)
-                        #proceso ese conjunto de flujos? aplico fase 1, 2 y 3 a ese conjunto que está vinclulado 
-                        # a una IP origen?
-                        # o o guardo todos los flujos en una estructura y los proceso a todos como 
-                        # se hizo en los experimentos
-                        #obtener IP del profile
-                    print (len(flows))
-                    for flow in flows:
-                        print(flow)
-                        #for k in flow:
-                        #    d = flow[k]
-                        #    print(d)                         
+                    #Obtain all flows from the profileid and twid when the timewindows closed
+                    flows = __database__.get_all_flows_in_profileid_twid(profileid,twid)
+                       
+                    print(flows)
+                    clean_flows = []
+                    if flows is not None:
+                        for key in flows.keys():
+                            clean_flows.append(flows[key])
+                    for f in clean_flows:
+                        flow_dict = json.loads(f)    
+                        print(flow_dict)
+                        print(flow_dict['label'])
+                    #    
+                                     
         except KeyboardInterrupt:
             return True
         except Exception as inst:
