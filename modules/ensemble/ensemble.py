@@ -95,21 +95,27 @@ class EnsembleModule(Module, multiprocessing.Process):
                     twidposition=data.find("t")
                     profileid = data[0:twidposition-1]
                     twid = data[twidposition:len(data)]
-                    # 
+                    
                     print('Ensemble module running')
                     #Obtain all flows from the profileid and twid when the timewindows closed
                     flows = __database__.get_all_flows_in_profileid_twid(profileid,twid)
-                       
+                    
                     print(flows)
                     clean_flows = []
+                    uids = []
                     if flows is not None:
                         for key in flows.keys():
+                            #uids = uids.append(key)       
+                            __database__.add_module_label_to_flow(profileid,twid,key,'test','malicious')                     
                             clean_flows.append(flows[key])
                     for f in clean_flows:
                         flow_dict = json.loads(f)    
                         print(flow_dict)
-                        print(flow_dict['label'])
-                    #    
+                        print(flow_dict['saddr'])
+                        #print(len(flow_dict['modules_labels']))
+                        #labels = flow_dict['modules_labels']
+                        #for l in labels:
+                        #    print(l)                        
                                      
         except KeyboardInterrupt:
             return True
