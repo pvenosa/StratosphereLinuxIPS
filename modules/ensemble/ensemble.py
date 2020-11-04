@@ -17,6 +17,7 @@ import multiprocessing
 from slips.core.database import __database__
 import platform
 import json
+import random
 
 # Your imports
 
@@ -64,15 +65,13 @@ class EnsembleModule(Module, multiprocessing.Process):
         """
         Function to use to print text using the outputqueue of slips.
         Slips then decides how, when and where to print this text by
-        taking all the prcocesses into account
-
+        taking all the processes into account
         Input
          verbose: is the minimum verbosity level required for this text to
          be printed
          debug: is the minimum debugging level required for this text to be
          printed
          text: text to print. Can include format like 'Test {}'.format('here')
-
         If not specified, the minimum verbosity level required is 1, and the
         minimum debugging level is 0
         """
@@ -100,22 +99,66 @@ class EnsembleModule(Module, multiprocessing.Process):
                     #Obtain all flows from the profileid and twid when the timewindows closed
                     flows = __database__.get_all_flows_in_profileid_twid(profileid,twid)
                     
+                    labels = ['malicious','normal']
+                    print('flujos originales')
                     print(flows)
-                    clean_flows = []
-                    uids = []
+                    ###clean_flows = []
+                    ###uids = []
                     if flows is not None:
                         for key in flows.keys():
-                            #uids = uids.append(key)       
-                            __database__.add_module_label_to_flow(profileid,twid,key,'test','malicious')                     
-                            clean_flows.append(flows[key])
-                    for f in clean_flows:
-                        flow_dict = json.loads(f)    
-                        print(flow_dict)
-                        print(flow_dict['saddr'])
-                        #print(len(flow_dict['modules_labels']))
-                        #labels = flow_dict['modules_labels']
-                        #for l in labels:
-                        #    print(l)                        
+                            ###uids.append(key)       
+                            #Random value to assign modules labels
+                            #when classifiers work and the assign module labels delete next 6 lines
+                            label1 = random.choice(labels)
+                            label2 = random.choice(labels)
+                            label3 = random.choice(labels)
+                            __database__.add_module_label_to_flow(profileid,twid,key,'test1',label1) 
+                            __database__.add_module_label_to_flow(profileid,twid,key,'test2',label2)
+                            __database__.add_module_label_to_flow(profileid,twid,key,'test3',label3)
+                            __database__.add_ensemble_label_to_flow(profileid,twid,key,'faltacalcular')
+                    print('flujos con labels agregados')
+                    flows = __database__.get_all_flows_in_profileid_twid(profileid,twid)
+                    print(flows)
+                    if flows is not None:
+                        for key in flows.keys():       
+                            f = flows[key]
+                            flow_dict = json.loads(f)    
+                            ######print('flujo sin clave')
+                            ######print(flow_dict)
+                            ######print(flow_dict['saddr'])
+                            modulesLabels = flow_dict['modules_labels']
+                            print(modulesLabels)
+                            #ensembleLabel = phase1Voting(labels)
+                            ###################################################################################
+                            ##El siguiente código debería ir en una función aparte y descomentamos la línea anterior que lo invoca
+                            ########################################################################################
+                            weights = {'test1':1,'test2':3,'test3':1}
+                            maliciousVotes = 0
+                            normalVotes = 0
+                            ensemble_Label = ''
+                            for classifier, label in modulesLabels.items(): 
+                                if (label == 'malicious'):
+                                    maliciousVotes = int(maliciousVotes+weights[classifier])
+                                else:
+                                    normalVotes = int(normalVotes+weights[classifier])
+                            if (maliciousVotes > normalVotes):
+                                print('ENTRE POR MALICIOUS')
+                                print(maliciousVotes)
+                                print(normalVotes)
+                                ensembleLabel = 'malicious'
+                            else:
+                                print('ENTRE POR NORMAL')
+                                print(maliciousVotes)
+                                print(normalVotes)
+                                ensembleLabel = 'normal'
+                            print(profileid)
+                            print(twid)
+                            print(key)
+                            print(ensembleLabel)
+                            __database__.add_ensemble_label_to_flow(profileid,twid,key,ensembleLabel)
+                        flows = __database__.get_all_flows_in_profileid_twid(profileid,twid)
+                        print('flujos con ENSEMBLE')
+                        print(flows)                    
                                      
         except KeyboardInterrupt:
             return True
