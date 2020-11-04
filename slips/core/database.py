@@ -921,6 +921,20 @@ class Database(object):
             data['modules_labels'][module_name] = module_label
             data = json.dumps(data)
             self.r.hset(profileid + self.separator + twid + self.separator + 'flows', uid, data)
+            
+    def add_ensemble_label_to_flow(self, profileid, twid, uid, ensemble_label):
+        """
+        Add an ensemble module label to the flow
+        """
+        flow = self.get_flow(profileid, twid, uid)
+        if flow:
+            data = json.loads(flow[uid])
+            # Now we have only one ensemble module but if we have more, we can add label to each ensemble module 
+            #data['ensemble_labels'][ensemble_module_name] = module_label
+            data['ensemble_label']= ensemble_label
+            data = json.dumps(data)
+            self.r.hset(profileid + self.separator + twid + self.separator + 'flows', uid, data)
+            print(ensemble_label)        
 
     def get_modules_labels_from_flow(self, profileid, twid, uid):
         """
