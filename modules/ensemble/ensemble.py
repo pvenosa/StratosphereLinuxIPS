@@ -229,7 +229,6 @@ class EnsembleModule(Module, multiprocessing.Process):
             #self.outputqueue.put('01|database|[DB] Type inst: {}'.format(type(inst)))
             #self.outputqueue.put('01|database|[DB] Inst: {}'.format(inst))
             #self.print(traceback.format_exc())
-            #las escrituras en la base de datos fueron reemplazadas por un valor concreto 
             return 'Indefinido' 
 
     def obtaincountersbyType(self,flows):
@@ -290,7 +289,6 @@ class EnsembleModule(Module, multiprocessing.Process):
                 d[srcAddr][dstAddr][proto][state]['normal'] += 1
                 print('PASO 11')
             else:
-            #Modifiqué aca
                 if(ensemble_label == 'malicious'):
                     d[srcAddr]['malicious'] += 1
                     print('PASO 12')
@@ -433,7 +431,7 @@ class EnsembleModule(Module, multiprocessing.Process):
                         for key in initialpercentegesdict.keys():
                             print(key)
                             print(initialpercentegesdict[key])
-                        #para probar lo pongo separado...me gustaría que no sea necesario iterar en todos los flows dos veces..
+                        #to test I do it separatly, I must think more if it is necessary iterate twice
                         ##thresholdCounterMaliciousFlows and thresholdPercentageMaliciousFlows are values determined by the training
                         ##we must read these values from a configuration file or ???? (I don't know yet)
                         thresholdCounterMaliciousFlows=0
