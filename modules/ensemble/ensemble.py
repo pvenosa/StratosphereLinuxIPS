@@ -4,6 +4,7 @@
 from slips.common.abstracts import Module
 import multiprocessing
 from slips.core.database import __database__
+from modules.virustotal.virustotal import VirusTotalModule
 import platform
 
 # Your imports
@@ -15,8 +16,10 @@ class EnsembleModule(Module, multiprocessing.Process):
     name = 'ensemble'
     description = 'Module to detect infected hosts detection applying ensembling'
     authors = ['Paula Venosa']
-
+    
     def __init__(self, outputqueue, config):
+    
+        self.vt = VirusTotalModule(outputqueue,config) 
         multiprocessing.Process.__init__(self)
         # All the printing output should be sent to the outputqueue.
         # The outputqueue is connected to another process called OutputProcess
@@ -67,193 +70,46 @@ class EnsembleModule(Module, multiprocessing.Process):
         vd_text = str(int(verbose) * 10 + int(debug))
         self.outputqueue.put(vd_text + '|' + self.name + '|[' + self.name + '] ' + str(text))
 
+###########################Phase 1 functions##########################################################
+    
     def phase1voting(self,modulesLabels):
         weights = {'test1':1,'test2':3,'test3':1}
         maliciousVotes = 0
         normalVotes = 0
-        ensemble_Label = ''
+        ensembleLabel = ''
         for classifier, label in modulesLabels.items(): 
             if (label == 'malicious'):
                 maliciousVotes = int(maliciousVotes+weights[classifier])
             else:
                 normalVotes = int(normalVotes+weights[classifier])
         if (maliciousVotes > normalVotes):
-            #print('MALICIOUS WINS THE VOTING')
-            #print(maliciousVotes)
-            #print(normalVotes)
             ensembleLabel = 'malicious'
         else:
-            #print('NORMAL WINS THE VOTING')
-            #print(maliciousVotes)
-            #print(normalVotes)
             ensembleLabel = 'normal'
         return ensembleLabel
+
+###########################End Phase 1 functions######################################################        
          
 ###########################Phase 2 functions##########################################################
-
-    def getStateFromFlags(self,state, pkts):
-        """ 
-        Analyze the flags given and return a summary of the state. Should work with Argus and Bro flags
-        We receive the pakets to distinguish some Reset connections
-        """
-        try:
-            #self.outputqueue.put('06|database|[DB]: State received {}'.format(state))
-            pre = state.split('_')[0]
-            try:
-                # Try suricata states
-                """
-                 There are different states in which a flow can be. 
-                 Suricata distinguishes three flow-states for TCP and two for UDP. For TCP, 
-                 these are: New, Established and Closed,for UDP only new and established.
-                 For each of these states Suricata can employ different timeouts. 
-                 """
-                if 'new' in state or 'established' in state:
-                    return 'Established'
-                elif 'closed' in state:
-                    return 'NotEstablished'
-
-                # We have varius type of states depending on the type of flow.
-                # For Zeek 
-                if 'S0' in state or 'REJ' in state or 'RSTOS0' in state or 'RSTRH' in state or 'SH' in state or 'SHR' in state:
-                    return 'NotEstablished'
-                elif 'S1' in state or 'SF' in state or 'S2' in state or 'S3' in state or 'RSTO' in state or 'RSTP' in state or 'OTH' in state: 
-                    return 'Established'
-
-                # For Argus
-                suf = state.split('_')[1]
-                if 'S' in pre and 'A' in pre and 'S' in suf and 'A' in suf:
-                    """
-                    Examples:
-                    SA_SA
-                    SR_SA
-                    FSRA_SA
-                    SPA_SPA
-                    SRA_SPA
-                    FSA_FSA
-                    FSA_FSPA
-                    SAEC_SPA
-                    SRPA_SPA
-                    FSPA_SPA
-                    FSRPA_SPA
-                    FSPA_FSPA
-                    FSRA_FSPA
-                    SRAEC_SPA
-                    FSPA_FSRPA
-                    FSAEC_FSPA
-                    FSRPA_FSPA
-                    SRPAEC_SPA
-                    FSPAEC_FSPA
-                    SRPAEC_FSRPA
-                    """
-                    return 'Established'
-                elif 'PA' in pre and 'PA' in suf:
-                    # Tipical flow that was reported in the middle
-                    """
-                    Examples:
-                    PA_PA
-                    FPA_FPA
-                    """
-                    return 'Established'
-                elif 'ECO' in pre:
-                    return 'ICMP Echo'
-                elif 'ECR' in pre:
-                    return 'ICMP Reply'
-                elif 'URH' in pre:
-                    return 'ICMP Host Unreachable'
-                elif 'URP' in pre:
-                    return 'ICMP Port Unreachable'
-                else:
-                    """
-                    Examples:
-                    S_RA
-                    S_R
-                    A_R
-                    S_SA 
-                    SR_SA
-                    FA_FA
-                    SR_RA
-                    SEC_RA
-                    """
-                    return 'NotEstablished'
-            except IndexError:
-                # suf does not exist, which means that this is some ICMP or no response was sent for UDP or TCP
-                if 'ECO' in pre:
-                    # ICMP
-                    return 'Established'
-                elif 'UNK' in pre:
-                    # ICMP6 unknown upper layer
-                    return 'Established'
-                elif 'CON' in pre:
-                    # UDP
-                    return 'Established'
-                elif 'INT' in pre:
-                    # UDP trying to connect, NOT preciselly not established but also NOT 'Established'. So we considered not established because there
-                    # is no confirmation of what happened.
-                    return 'NotEstablished'
-                elif 'EST' in pre:
-                    # TCP
-                    return 'Established'
-                elif 'RST' in pre:
-                    # TCP. When -z B is not used in argus, states are single words. Most connections are reseted when finished and therefore are established
-                    # It can happen that is reseted being not established, but we can't tell without -z b.
-                    # So we use as heuristic the amount of packets. If <=3, then is not established because the OS retries 3 times.
-                    if int(pkts) <= 3:
-                        return 'NotEstablished'
-                    else:
-                        return 'Established'
-                elif 'FIN' in pre:
-                    # TCP. When -z B is not used in argus, states are single words. Most connections are finished with FIN when finished and therefore are established
-                    # It can happen that is finished being not established, but we can't tell without -z b.
-                    # So we use as heuristic the amount of packets. If <=3, then is not established because the OS retries 3 times.
-                    if int(pkts) <= 3:
-                        return 'NotEstablished'
-                    else:
-                        return 'Established'
-                else:
-                    """
-                    Examples:
-                    S_
-                    FA_
-                    PA_
-                    FSA_
-                    SEC_
-                    SRPA_
-                    """
-                    return 'NotEstablished'
-            #self.outputqueue.put('01|database|[DB] Funcion getFinalStateFromFlags() We didnt catch the state. We should never be here')
-            #return None modificado por un valor concreto!
-            return None
-            return 'Indefinido' 
-        except Exception as inst:
-            #self.outputqueue.put('01|database|[DB] Error in getFinalStateFromFlags() in database.py')
-            #self.outputqueue.put('01|database|[DB] Type inst: {}'.format(type(inst)))
-            #self.outputqueue.put('01|database|[DB] Inst: {}'.format(inst))
-            #self.print(traceback.format_exc())
-            return 'Indefinido' 
+###########################Phase 3 functions###########################################################
+## In this phase we must decide the label for each pair IP Src address - IP Dst Address
+## The label indicates if the entire set of flows for this pair source-destination is malicious or normal
 
     def obtaincountersbyType(self,flows):
-    #en lugar de un dataset ahora recibo un diccionario/lista de flujos
+    #For each pair IPSrc-IpDst we calculate the total of flows, the total of bytes, the total of packets
         d = {}
         d2 = {}
 
         for key in flows.keys():       
-            f = flows[key]
-            flow_dict = json.loads(f)    
-            #t.SrcAddr --> flow_dict['saddr']
-            #t.DstAddr --> flow_dict['daddr']     
-            #t.State --> flow_dict['state']
-            #t.TotPkts --> flow_dict['pkts']
-            #t.Proto --> flow_dict['proto']
-            #t.Label -->flow_dict['ensemble_label']
+            flow_dict = flows[key]
             srcAddr = flow_dict['saddr']
             dstAddr = flow_dict['daddr']     
             state = flow_dict['state']
             totPkts = flow_dict['pkts']
             proto = flow_dict['proto']
             totBytes = flow_dict['allbytes']
-            ensemble_label = flow_dict['ensemble_label']
-                   
-                   
+            ensemble_label = flow_dict['modules_labels']['ensemble']
+            
             if srcAddr not in d.keys():
                 d[srcAddr] = {'total1': 0.0, 'normal': 0.0, 'malicious': 0.0 }
             if dstAddr not in d[srcAddr].keys():
@@ -264,41 +120,26 @@ class EnsembleModule(Module, multiprocessing.Process):
             d2[str(srcAddr)+"-"+str(dstAddr)]['totalBytes']+= totBytes
             if proto not in d[srcAddr][dstAddr].keys():
                 d[srcAddr][dstAddr][proto] = {'total3': 0.0, 'normal': 0.0, 'malicious': 0.0 }
-            state=self.getStateFromFlags(state,totPkts)
             if state not in d[srcAddr][dstAddr][proto].keys():
                 d[srcAddr][dstAddr][proto][state] = {'total4': 0.0, 'normal': 0.0, 'malicious': 0.0 }
             d[srcAddr]['total1'] += 1
-            print('PASO 4')
             d[srcAddr][dstAddr]['total2'] += 1
-            print('PASO 5')
             d[srcAddr][dstAddr][proto]['total3'] += 1
-            print('PASO 6')
             d[srcAddr][dstAddr][proto][state]['total4'] += 1
-            print('PASO 7')
-       
-            #For each pair IPSrc-IpDst I want to know the total of flows, the total of bytes, the total of packets
-            #total2 is the total of flows counter, totalPackets is the total of packets, totalBytes is the total of bytes
+            
             print(ensemble_label)
             if ensemble_label == 'normal':
                 d[srcAddr]['normal'] += 1
-                print('PASO 8')
                 d[srcAddr][dstAddr]['normal'] += 1
-                print('PASO 9')
                 d[srcAddr][dstAddr][proto]['normal'] += 1
-                print('PASO 10')
                 d[srcAddr][dstAddr][proto][state]['normal'] += 1
-                print('PASO 11')
             else:
                 if(ensemble_label == 'malicious'):
                     d[srcAddr]['malicious'] += 1
-                    print('PASO 12')
                     d[srcAddr][dstAddr]['malicious'] += 1
-                    print('PASO 13')
                     d[srcAddr][dstAddr][proto]['malicious'] += 1
-                    print('PASO 14')
                     d[srcAddr][dstAddr][proto][state]['malicious'] += 1
-                    print('PASO 15')
-
+            
         return d,d2
 
     def get_stats(self, d,src, dst, proto, state):
@@ -316,8 +157,8 @@ class EnsembleModule(Module, multiprocessing.Process):
     #based on amount of flows labeled as malicious and percentege of flows labeled as malicious
 
         for key in flows.keys():       
-            f = flows[key]
-            flow_dict = json.loads(f)    
+            flow_dict = flows[key]
+            #flow_dict = json.loads(f)    
         
             src = flow_dict['saddr']
             dst = flow_dict['daddr']     
@@ -325,9 +166,9 @@ class EnsembleModule(Module, multiprocessing.Process):
             totPkts = flow_dict['pkts']
             proto = flow_dict['proto']
             totBytes = flow_dict['allbytes']
-            ensemble_label = flow_dict['ensemble_label']
+            print('get_percentegesandcounters')
+            ensemble_label = flow_dict['modules_labels']['ensemble']
     
-            state=self.getStateFromFlags(state,totPkts)
             pstate = self.get_stats(d,src, dst, proto, state)
             key=src+"-"+dst
                 
@@ -368,9 +209,94 @@ class EnsembleModule(Module, multiprocessing.Process):
    
 ##########################End Phase 2 functions########################################################                         
 
+###########################Phase 3 functions###########################################################
+## In this phase we must decide the label for each IP Src address taking in account different TI feeds (VirusTotal Module,
+##TIModule and Peer Module)
+## The malicious label for IP Src Address indicates the host is infected
+## The normal label for IP Src Address indicates the host is not infected
+## Phase 3 label is written for each profileid in the Database 
+
+    def buildPhase3DictionarywithVTInformation(self,finalpercentegesdict):
+    ##The function receive the result phase 2 dictionary 
+    ##Obtain VT Information for each IP address destination of each dictionary element (dictionary key)
+    ##Return a dictionary where we have VT Information summarized for each IP Src Addr
+                   
+        phase3dictionarywithVTInformation= {}
+         
+         
+        for key in finalpercentegesdict.keys():
+            dstaddr = finalpercentegesdict[key]['DstAddr']
+            srcaddr = finalpercentegesdict[key]['SrcAddr']
+            predictlabel = finalpercentegesdict[key]['PredictLabel']
+            totalFlows = finalpercentegesdict[key]['totalFlows']
+            cantTCPEMW = finalpercentegesdict[key]['cantTCPEMW']
+            cantTCPNEMW = finalpercentegesdict[key]['cantTCPEMW']
+            cantUDPEMW = finalpercentegesdict[key]['cantUDPEMW']
+            cantUDPNEMW = finalpercentegesdict[key]['cantUDPNEMW']
+                            
+            ####Get VirusTotal information for each destination
+            url,download,referrer,communicating = self.vt.get_ip_vt_scores(dstaddr)
+            print('VIRUS TOTAL MODULE OK!!!!!!!!!!!!!!!!!!!!!!!')
+            print(url)
+            print(download)
+            print(referrer)
+            print(communicating)
+                        
+            if srcaddr not in phase3dictionarywithVTInformation.keys():
+                phase3dictionarywithVTInformation[srcaddr] = {'Phase2Label': predictlabel, 'Phase2Confidence': 0, 'VTSumUrl': 0.00, 'VTSumDownload': 0.00, 'VTSumReferrer': 0.00, 'VTSumCommunic': 0.00, 'totalFlows':0, 'totalMalwareFlows':0, 'TotalGroups':0,  'MaliciousGroups':0, 'VTConfidence':0, 'Phase3Confidence':0, 'Phase3Label':'NoSeteada'}           
+            phase3dictionarywithVTInformation[srcaddr]['totalFlows']+=totalFlows
+            phase3dictionarywithVTInformation[srcaddr]['totalMalwareFlows']+=int(cantTCPEMW+cantTCPNEMW+cantUDPEMW+cantUDPNEMW)
+            ##The process calculate for each IP Source Address the sum of url ratio value, download ratio value
+            ##referrer ratio value and communicating ratio value for all Ip destinations that IP Source communicates with
+                            
+            phase3dictionarywithVTInformation[srcaddr]['VTSumUrl']+=url
+            phase3dictionarywithVTInformation[srcaddr]['VTSumDownload']+=download
+            phase3dictionarywithVTInformation[srcaddr]['VTSumReferrer']+=referrer
+            phase3dictionarywithVTInformation[srcaddr]['VTSumCommunic']+=communicating
+            phase3dictionarywithVTInformation[srcaddr]['TotalGroups']+=1
+            if (predictlabel == 'malware'):
+                phase3dictionarywithVTInformation[srcaddr]['MaliciousGroups']+=1    
+        
+        return phase3dictionarywithVTInformation                
+        
+    def buildPhase3DictionarywithVTLabel(self,phase3dictionary,profileid,w1,w2,w3,w4,threshold1,threshold2,threshold3,p3weight):
+                     
+    ##CHECK THE FUNCTION LOGIC                        
+        for key in phase3dictionary.keys():
+            phase3dictionary[key]['VTConfidence']=(w1*phase3dictionary[key]['VTSumUrl'])+(w2*phase3dictionary[key]['VTSumDownload'])+(w3*phase3dictionary[key]['VTSumCommunic'])+(w4*phase3dictionary[key]['VTSumReferrer'])
+            print(key)
+            print(phase3dictionary[key])
+                    
+        for key in phase3dictionary.keys():
+            w5=0
+     
+            if((phase3dictionary[key]['MaliciousGroups'])>=threshold3):
+                w5=0.59
+            else:
+                if((phase3dictionary[key]['MaliciousGroups'])>=threshold2):
+                    w5=0.55
+                else:
+                    if((phase3dictionary[key]['MaliciousGroups'])>=threshold1):
+                        w5=0.5
+            phase3dictionary[key]['Phase2Confidence']=w5
+            phase3dictionary[key]['Phase3Confidence']=phase3dictionary[key]['Phase2Confidence']+phase3dictionary[key]['VTConfidence']
+            if ((round(phase3dictionary[key]['Phase3Confidence'],2))>=(round(p3weight,2))):
+                phase3dictionary[key]['Phase3Label']='malicious'
+                print('WRITE DESCRIPTION######################!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
+                ##__database__.set_profile_as_malicious('147.32.81.174','Phase3Ensemble')
+                __database__.set_profile_as_malicious(profileid,'EnsembleModuleLabel(using VT as TI):Malicious')
+            else:
+                phase3dictionary[key]['Phase3Label']='normal'
+            print (phase3dictionary[key]['Phase3Label'])
+        return phase3dictionary
+            
+###########################End Phase 3 functions#######################################################
+
     def run(self):
         try:
             # Main loop function
+            processedKeys=set()
+            
             while True:
                 message = self.c1.get_message(timeout=self.timeout)
                 # Check that the message is for you. Probably unnecessary...
@@ -391,39 +317,61 @@ class EnsembleModule(Module, multiprocessing.Process):
                     labels = ['malicious','normal']
                     print('Original flows')
                     print(flows)
-                    ###clean_flows = []
-                    ###uids = []
                     if flows is not None:
                         for key in flows.keys():
-                            ###uids.append(key)       
+                            f = flows[key]
+                            flow_dict = json.loads(f)
                             #Random value to assign modules labels
                             #when classifiers work and the assign module labels delete next 6 lines
                             label1 = random.choice(labels)
                             label2 = random.choice(labels)
                             label3 = random.choice(labels)
-                            __database__.add_module_label_to_flow(profileid,twid,key,'test1',label1) 
-                            __database__.add_module_label_to_flow(profileid,twid,key,'test2',label2)
-                            __database__.add_module_label_to_flow(profileid,twid,key,'test3',label3)
-                            __database__.add_ensemble_label_to_flow(profileid,twid,key,'NONE')
-                    print('Flows with random labels to simulate classifiers results to assign flow labels')
-                    flows = __database__.get_all_flows_in_profileid_twid(profileid,twid)
+                            flow_dict['modules_labels']['test1'] = label1
+                            flow_dict['modules_labels']['test2'] = label2
+                            flow_dict['modules_labels']['test3'] = label3
+                            #######
+                            flows[key]=flow_dict                            
+                    print('Flows with RANDOM LABELS to simulate classifiers results to assign flow labels')
+                    #flows = __database__.get_all_flows_in_profileid_twid(profileid,twid)
                     print(flows)
                     if flows is not None:
-                        for key in flows.keys():       
-                            f = flows[key]
-                            flow_dict = json.loads(f)    
-                            modulesLabels = flow_dict['modules_labels']
-                            ensembleLabel = self.phase1voting(modulesLabels)
+                        print('entra al for del ensembling')
+                        for key in flows.keys():
                             print(profileid)
                             print(twid)
                             print(key)
-                            print(ensembleLabel)
-                            __database__.add_ensemble_label_to_flow(profileid,twid,key,ensembleLabel)
-                    flows = __database__.get_all_flows_in_profileid_twid(profileid,twid)
+                            flow_dict = flows[key]
+                            modulesLabels = flow_dict['modules_labels']
+                            ensembleLabel = self.phase1voting(modulesLabels)
+                            print(flow_dict)
+                            flow_dict['modules_labels']['ensemble'] = ensembleLabel
+                            flows[key]=flow_dict
                     print('flows with ensemble label')
-                    print(flows)                    
+                    print(flows)  
+                    
+                    if flows is not None:
+                        print('Store Phase 1 and Phase 2labels in DB')
+                        for key in flows.keys():   
+                            labels =  __database__.get_modules_labels_from_flow(profileid, twid, key)
+                            if labels:
+                                flow_dict = flows[key]
+                                label1 = flow_dict['modules_labels']['test1']
+                                label2 = flow_dict['modules_labels']['test2']
+                                label3 = flow_dict['modules_labels']['test3']
+                                ensembleLabel = flow_dict['modules_labels']['ensemble']
+                                ##Three next lines are only for test                      
+                                __database__.add_module_label_to_flow(profileid,twid,key,'test1',label1) 
+                                __database__.add_module_label_to_flow(profileid,twid,key,'test2',label2)
+                                __database__.add_module_label_to_flow(profileid,twid,key,'test3',label3)
+                                ###
+                                __database__.add_module_label_to_flow(profileid,twid,key,'ensemble',ensembleLabel)
+                            else:
+                                print('Flow exists in the DB!!!')         
+                    
+                    phase2finalpercentegesdict = {}
                     ## Phase 2 ensembling##
                     if flows is not None:
+                        print('PHASE 2 START')
                         countersdict,initialpercentegesdict=self.obtaincountersbyType(flows)
                         for key in countersdict.keys():
                             print(key)
@@ -436,16 +384,45 @@ class EnsembleModule(Module, multiprocessing.Process):
                         ##we must read these values from a configuration file or ???? (I don't know yet)
                         thresholdCounterMaliciousFlows=0
                         thresholdPercentegeMaliciousFlows=25
-                        finalpercentegesdict=self.get_percentegesandcounters(flows,countersdict,initialpercentegesdict,thresholdCounterMaliciousFlows,thresholdPercentegeMaliciousFlows)                     
-                        for key in finalpercentegesdict.keys():
+                        phase2finalpercentegesdict=self.get_percentegesandcounters(flows,countersdict,initialpercentegesdict,thresholdCounterMaliciousFlows,thresholdPercentegeMaliciousFlows)                     
+                        ##Following 3 lines are only for test Phase2 results                        
+                        for key in phase2finalpercentegesdict.keys():
                             print(key)
-                            print(finalpercentegesdict[key])
-                     ## End Phase 2 ensembling##
-                     ## Phase 3 ensembling#####
-                                      
+                            print(phase2finalpercentegesdict[key])
+                                                           
+                    ## End Phase 2 ensembling##
+                    
+                    ## Phase 3 ensembling#####
+                        print('PHASE 3 START')
+                        ##Phase 3 Dictionary initialization
+                        ####Build Phase3 Dictionary for each IP Source, based on Phase 2 Dictionary and VT Information 
+                    
+                        phase3dictionarywithVTInformation=self.buildPhase3DictionarywithVTInformation(phase2finalpercentegesdict)
+                    
+                        ###w1,w2,w3, w4 are weights for url ratio, download ratio, referrer ratio and communicating ratio 
+                        w1=0.19
+                        w2=0.8
+                        w3=0.01
+                        w4=0
+                        ###threshold1, threshold2 and threshold3 must be parameters
+                        threshold1 = 1
+                        threshold2 = 5
+                        threshold3 = 20
+                        p3weight = 0.55
+                    
+                        phase3dictionarywithVTLabel=self.buildPhase3DictionarywithVTLabel(phase3dictionarywithVTInformation,profileid,w1,w2,w3,w4,threshold1,threshold2,threshold3,p3weight)
                      
-                     ## End Phase 3 ensembling##
-                        
+                        ## End Phase 3 ensembling##
+                    
+                        for key in phase3dictionarywithVTLabel.keys():
+                            print(phase3dictionarywithVTLabel[key])
+                                          
+                            if(phase3dictionarywithVTLabel[key]['Phase3Label'] == 'malicious'):
+                                ##descripcion = __database__.get_loaded_malicious_ip(key)
+                                descripcion = __database__.is_profile_malicious(profileid)
+                                print('Get malicious profile descripcion')
+                                print(descripcion)
+                                
         except KeyboardInterrupt:
             return True
         except Exception as inst:
